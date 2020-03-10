@@ -18,11 +18,11 @@ def kick_connection(db_name):
         print('The error occured during the connection:', connection_error)
 
 
-def execute_query_post_NoAutocommit(connection, query):
+def execute_query_post_NoAutocommit(connection, query, data):
 
     with connection.cursor() as cursor:
         try:
-            cursor.execute(query)
+            cursor.execute(query, data)
             response = cursor.rowcount
 
             return response
@@ -64,36 +64,6 @@ def execute_query_pull(connection, query):
         return request_columns, request_output
 
 
-CreateFlyBookTableQuery = """
-CREATE TABLE public.fly_booking (
-booking_id integer PRIMARY KEY,
-client_name VARCHAR(50),
-fly_number VARCHAR(10),
-from_air VARCHAR(10),
-to_air VARCHAR(10),
-date DATE);
-"""
-
-CreateHtlBookTableQuery = """
-CREATE TABLE public.htl_booking (
-booking_id integer PRIMARY KEY,
-client_name VARCHAR(50),
-hotel_name VARCHAR(10),
-arrival DATE,
-departure DATE);
-"""
-
-CreateAccountTableQuery = """
-CREATE TABLE public.account (
-account_id integer PRIMARY KEY,
-client_name VARCHAR(50),
-amount numeric(20,2) CHECK(Amount >= 0)
-);
-"""
-
-Record1 = {'flight': ['345235', 'peter', 'UA3456', 'KBP', 'TGL', '2020-02-20']}
-
-
 def init_table(db_name, table_name, table_query):
     conn = kick_connection(db_name)
 
@@ -131,19 +101,21 @@ def prepare_flight_transaction():
 
     conn = kick_connection(db_name)
 
-    query = f"""
+    query = """
     INSERT INTO public.fly_booking
     (booking_id, client_name, fly_number, from_air, to_air, date) 
-    VALUES('345235', 'peter', 'UA3456', 'KBP', 'TGL', '2020-02-20');
+    VALUES(%s, %s, %s, %s, %s, %s);
     """
+    query_data = ('345235', 'peter', 'UA3456', 'KBP', 'TGL', '2020-02-20')
 
     begin_response = execute_query_post_NoAutocommit(conn, 'BEGIN')
-    transaction_response = execute_query_post_NoAutocommit(conn, query)
-    prepare_response = execute_query_post_NoAutocommit(conn, "PREPARE TRANSACTION 'peter_flight'")
+    transaction_response = execute_query_post_NoAutocommit(conn, query, query_data)
+    prepare_response = execute_query_post_NoAutocommit(conn, "PREPARE TRANSACTION %s", 'peter_flight')
 
     conn.close()
 
     return begin_response, transaction_response, prepare_response
+
 
 def prepare_hotel_transaction():
 
@@ -165,6 +137,7 @@ def prepare_hotel_transaction():
 
     return begin_response, transaction_response, prepare_response
 
+
 def prepare_account_transaction():
 
     db_name = 'Account'
@@ -177,13 +150,71 @@ def prepare_account_transaction():
     WHERE client_name = 'peter';
     """
 
-    begin_response = execute_query_post_NoAutocommit(conn, 'BEGIN')
+    begin_response = execute_query_post_NoAutocommit(conn, 'BEGIN %s', '')
     transaction_response = execute_query_post_NoAutocommit(conn, query)
     prepare_response = execute_query_post_NoAutocommit(conn, "PREPARE TRANSACTION 'peter_account'")
 
     conn.close()
 
     return begin_response, transaction_response, prepare_response
+
+
+def commit_prepared_transaction(flight_transaction, hotel_transaction, account_transaction):
+
+    db_fly = 'FlyBooking'
+    db_hotel = 'HotelBooking'
+    db_account = 'Account'
+
+    fly_query = "COMMIT PREPARED %s"
+    fly_query_data = (flight_transaction,)
+    hotel_query = "COMMIT PREPARED %s"
+    hotel_query_data = (hotel_transaction,)
+    account_query = "COMMIT PREPARED %s"
+    account_query_data = (account_transaction,)
+
+    conn = kick_connection(db_fly)
+    fly_resp = execute_query_post_NoAutocommit(conn, fly_query, fly_query_data)
+    conn.close()
+
+    conn = kick_connection(db_hotel)
+    hotel_resp = execute_query_post_NoAutocommit(conn, hotel_query, hotel_query_data)
+    conn.close()
+
+    conn = kick_connection(db_account)
+    account_resp = execute_query_post_NoAutocommit(conn, account_query, account_query_data)
+    conn.close()
+
+    return fly_resp, hotel_resp, account_resp
+
+
+CreateFlyBookTableQuery = """
+CREATE TABLE public.fly_booking (
+booking_id integer PRIMARY KEY,
+client_name VARCHAR(50),
+fly_number VARCHAR(10),
+from_air VARCHAR(10),
+to_air VARCHAR(10),
+date DATE);
+"""
+
+CreateHtlBookTableQuery = """
+CREATE TABLE public.htl_booking (
+booking_id integer PRIMARY KEY,
+client_name VARCHAR(50),
+hotel_name VARCHAR(10),
+arrival DATE,
+departure DATE);
+"""
+
+CreateAccountTableQuery = """
+CREATE TABLE public.account (
+account_id integer PRIMARY KEY,
+client_name VARCHAR(50),
+amount numeric(20,2) CHECK(Amount >= 0)
+);
+"""
+
+Record1 = {'flight': ['345235', 'peter', 'UA3456', 'KBP', 'TGL', '2020-02-20']}
 
 
 # Initialize tables at the distinct DB's
@@ -197,9 +228,13 @@ f1, f2, f3 = prepare_flight_transaction()
 h1, h2, h3 = prepare_hotel_transaction()
 a1, a2, a3 = prepare_account_transaction()
 
+# Commit transactions
+
+fly, hotel, account = commit_prepared_transaction('peter_flight', 'peter_hotel', 'peter_account')
+
 
 # Test data
 test_connection = kick_connection('FlyBooking')
-test_query = "select * from public.fly_booking"
-col, out = execute_query_pull(test_connection, test_query)
+test_query = "COMMIT PREPARED 'peter_flight'"
+resp = execute_query_post_autocommitrollback(test_connection, test_query)
 test_connection.close()
