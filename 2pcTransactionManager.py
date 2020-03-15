@@ -71,14 +71,23 @@ def init_account_balance():
 
     db_name = 'Account'
     conn = kick_connection(db_name)
-    query = """
+    query_peter = """
     INSERT INTO public.account
     (account_id, client_name, amount)
     VALUES('456754', 'peter', 500.00)
     """
 
-    a_1 = execute_query_post_autocommitrollback(conn, query)
+    query_julee = """
+        INSERT INTO public.account
+        (account_id, client_name, amount)
+        VALUES('546765', 'julee', 100.00)
+        """
+
+    a_1 = execute_query_post_autocommitrollback(conn, query_peter)
     print(a_1)
+
+    a_2 = execute_query_post_autocommitrollback(conn, query_julee)
+    print(a_2)
 
     conn.close()
 
@@ -102,29 +111,36 @@ def prepare_flight_transaction(transaction_name, transaction_details):
                   f'{transaction_details[4]}',
                   f'{transaction_details[5]}')
 
-    with conn.cursor() as cursor:
-        try:
-            responses = []
+    cursor = conn.cursor()
+    responses = []
 
-            cursor.execute('BEGIN')
-            responses.append(cursor.rowcount)
+    try:
+        cursor.execute('BEGIN')
+        responses.append(cursor.rowcount)
 
-            cursor.execute(query, query_data)
-            responses.append(cursor.rowcount)
+        cursor.execute(query, query_data)
+        responses.append(cursor.rowcount)
 
-            cursor.execute("PREPARE TRANSACTION %s", transaction_name)
-            responses.append(cursor.rowcount)
+        cursor.execute("PREPARE TRANSACTION %s", (transaction_name,))
+        responses.append(cursor.rowcount)
+        cursor.execute("END")
 
-            return responses
+        return responses
 
-        except psycopg2.Error as cursor_error:
-            print('The error occured while executing the query:', cursor_error)
-            conn.rollback()
+    except psycopg2.Error as cursor_error:
+        print('The error occured while executing the query:', cursor_error)
+        conn.rollback()
+        responses.append(cursor_error)
 
-            return cursor_error
+        return responses
 
-        finally:
-            conn.close()
+    finally:
+        cursor.close()
+        cursor2 = conn.cursor()
+        cursor2.execute("END")
+        cursor2.close()
+        conn.close()
+
 
 
 def prepare_hotel_transaction(transaction_name, transaction_details):
@@ -144,29 +160,35 @@ def prepare_hotel_transaction(transaction_name, transaction_details):
                   f'{transaction_details[3]}',
                   f'{transaction_details[4]}')
 
-    with conn.cursor() as cursor:
-        try:
-            responses = []
+    cursor = conn.cursor()
+    responses = []
 
-            cursor.execute('BEGIN')
-            responses.append(cursor.rowcount)
+    try:
+        cursor.execute('BEGIN')
+        responses.append(cursor.rowcount)
 
-            cursor.execute(query, query_data)
-            responses.append(cursor.rowcount)
+        cursor.execute(query, query_data)
+        responses.append(cursor.rowcount)
 
-            cursor.execute("PREPARE TRANSACTION %s", transaction_name)
-            responses.append(cursor.rowcount)
+        cursor.execute("PREPARE TRANSACTION %s", (transaction_name,))
+        responses.append(cursor.rowcount)
+        cursor.execute("END")
 
-            return responses
+        return responses
 
-        except psycopg2.Error as cursor_error:
-            print('The error occured while executing the query:', cursor_error)
-            conn.rollback()
+    except psycopg2.Error as cursor_error:
+        print('The error occured while executing the query:', cursor_error)
+        conn.rollback()
+        responses.append(cursor_error)
 
-            return cursor_error
+        return responses
 
-        finally:
-            conn.close()
+    finally:
+        cursor.close()
+        cursor2 = conn.cursor()
+        cursor2.execute("END")
+        cursor2.close()
+        conn.close()
 
 
 def prepare_account_transaction(transaction_name, transaction_details):
@@ -182,29 +204,35 @@ def prepare_account_transaction(transaction_name, transaction_details):
     query_data = (f'{transaction_details[2]}',
                   f'{transaction_details[0]}')
 
-    with conn.cursor() as cursor:
-        try:
-            responses = []
+    cursor = conn.cursor()
+    responses = []
+    try:
+        cursor.execute('BEGIN')
+        responses.append(cursor.rowcount)
 
-            cursor.execute('BEGIN')
-            responses.append(cursor.rowcount)
+        cursor.execute(query, query_data)
+        responses.append(cursor.rowcount)
 
-            cursor.execute(query, query_data)
-            responses.append(cursor.rowcount)
+        cursor.execute("PREPARE TRANSACTION %s", (transaction_name,))
+        responses.append(cursor.rowcount)
+        cursor.execute("END")
 
-            cursor.execute("PREPARE TRANSACTION %s", transaction_name)
-            responses.append(cursor.rowcount)
+        return responses
 
-            return responses
+    except psycopg2.Error as cursor_error:
+        print('The error occured while executing the query:', cursor_error)
+        conn.rollback()
+        responses.append(cursor_error)
 
-        except psycopg2.Error as cursor_error:
-            print('The error occured while executing the query:', cursor_error)
-            conn.rollback()
+        return responses
 
-            return cursor_error
+    finally:
+        cursor.close()
+        cursor2 = conn.cursor()
+        cursor2.execute("END")
+        cursor2.close()
+        conn.close()
 
-        finally:
-            conn.close()
 
 
 # COMMIT OR ROLLBACK PREPARED BLOCK
@@ -217,6 +245,7 @@ def finish_prepared_flight(flight_transaction, action):
 
     with conn.cursor() as cursor:
         try:
+            cursor.execute("END")
             cursor.execute(query, (flight_transaction,))
             responses.append(cursor.rowcount)
 
@@ -280,6 +309,71 @@ def finish_prepared_account(account_transaction, action):
             conn.close()
 
 
+def revert_flight_saga(transaction_details):
+    db_name = 'FlyBooking'
+    conn = kick_connection(db_name)
+
+    query = f"""
+        DELETE FROM public.fly_booking 
+        WHERE client_name = %s;
+        """
+    query_data = (f'{transaction_details[1]}',)
+
+    cursor = conn.cursor()
+    responses = []
+
+    try:
+        cursor.execute(query, query_data)
+        responses.append(cursor.rowcount)
+        conn.commit()
+
+        return responses
+
+    except psycopg2.Error as cursor_error:
+        print('The error occured while executing the query:', cursor_error)
+        conn.rollback()
+        responses.append(cursor_error)
+
+        return responses
+
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def revert_hotel_saga(transaction_details):
+
+    db_name = 'HotelBooking'
+    conn = kick_connection(db_name)
+
+    query = f"""
+        DELETE FROM public.htl_booking 
+        WHERE client_name = %s;
+        """
+    query_data = (f'{transaction_details[1]}',)
+
+    cursor = conn.cursor()
+    responses = []
+
+    try:
+        cursor.execute(query, query_data)
+        responses.append(cursor.rowcount)
+        conn.commit()
+
+        return responses
+
+    except psycopg2.Error as cursor_error:
+        print('The error occured while executing the query:', cursor_error)
+        conn.rollback()
+        responses.append(cursor_error)
+
+        return responses
+
+    finally:
+        cursor.close()
+        conn.close()
+
+
 # INITIALIZE TABLES QUERIES
 CreateFlyBookTableQuery = """
 CREATE TABLE public.fly_booking (
@@ -308,12 +402,76 @@ amount numeric(20,2) CHECK(Amount >= 0)
 );
 """
 
-# TRANSACTIONS TO PERFORM
-Record1 = {'flight': ['345235', 'peter', 'UA3456', 'KBP', 'TGL', '2020-02-20'],
-           'hotel': ['457634', 'peter', 'Ritz', '2020-02-20', '2020-03-20'],
-           'account': ['456754', 'peter', '100']}
-
 # TRANSACTION MANAGER CODE ITSELF
+def book_trip(name, data):
+
+    flight = name+'_flight'
+    hotel = name+'_hotel'
+    account = name+'_account'
+
+    prepare_flight_response = prepare_flight_transaction(flight, data['flight'])
+    prepare_hotel_response = prepare_hotel_transaction(hotel, data['hotel'])
+    prepare_account_response = prepare_account_transaction(account, data['account'])
+    print('Transactions sent to DB for check')
+
+
+    # Commit transactions
+    if ((prepare_flight_response[1] == 1) &
+        (prepare_hotel_response[1] == 1) &
+        (prepare_account_response[1] == 1)):
+
+        commit_flight_response = finish_prepared_flight(flight, 'commit')
+        commit_hotel_response = finish_prepared_hotel(hotel, 'commit')
+        commit_account_response = finish_prepared_account(account, 'commit')
+        print('Transaction is successfull')
+
+    # Rollback transactions
+    else:
+        rollback_flight_response = finish_prepared_flight(flight, 'rollback')
+        rollback_hotel_response = finish_prepared_hotel(hotel, 'rollback')
+        rollback_account_response = finish_prepared_account(account, 'rollback')
+        print('Transaction is unsuccessfull, not enough funds')
+
+def book_trip_saga(name, data):
+
+    flight = name + '_flight'
+    hotel = name + '_hotel'
+    account = name + '_account'
+
+    prepare_flight_response = prepare_flight_transaction(flight, data['flight'])
+
+    if prepare_flight_response[1] == 1:
+        commit_flight_response = finish_prepared_flight(flight, 'commit')
+        print('Flight is booked')
+        prepare_hotel_response = prepare_hotel_transaction(hotel, data['hotel'])
+
+        if prepare_hotel_response[1] == 1:
+            commit_hotel_response = finish_prepared_hotel(hotel, 'commit')
+            print('Hotel is booked')
+            prepare_account_response = prepare_account_transaction(account, data['account'])
+
+            if prepare_account_response[1] == 1:
+                commit_account_response = finish_prepared_account(account, 'commit')
+                print('Money for the trip is charged. Trip is successfully booked!')
+
+            else:
+                rollback_account_response = finish_prepared_account(account, 'rollback')
+                print('There is a problem with a bank account, All bookings would be reverted')
+                revert_flight_saga(data['flight'])
+                print('Flight is cancelled')
+                revert_hotel_saga(data['hotel'])
+                print('Hotel is cancelled')
+
+        else:
+            rollback_hotel_response = finish_prepared_hotel(hotel, 'rollback')
+            print('The hotel was unable to be booked. The flight is going to be cancelled as well')
+            revert_flight_saga(data['flight'])
+            print('Flight is cancelled')
+
+    else:
+        rollback_flight_response = finish_prepared_flight(flight, 'rollback')
+        print('Flight booking was unsuccessfull. Trip is cancelled')
+
 
 # Initialize tables at the distinct DB's
 init_table('FlyBooking', 'fly_booking', CreateFlyBookTableQuery)
@@ -321,27 +479,26 @@ init_table('HotelBooking', 'htl_booking', CreateHtlBookTableQuery)
 init_table('Account', 'account', CreateAccountTableQuery)
 init_account_balance()
 
-# Prepare transactions
-prepare_flight_response = prepare_flight_transaction('peter_flight', Record1['flight'])
-prepare_hotel_response = prepare_hotel_transaction('peter_hotel', Record1['hotel'])
-prepare_account_response = prepare_account_transaction('peter_account', Record1['account'])
+# TRANSACTIONS TO PERFORM
 
-# Commit transactions
-commit_flight_response = finish_prepared_flight('peter_flight', 'commit')
-commit_hotel_response = finish_prepared_hotel('peter_hotel', 'commit')
-commit_account_response = finish_prepared_account('peter_account', 'commit')
+# The one that should be committed
+Peter = {'flight': ['345235', 'peter', 'UA3456', 'KBP', 'TGL', '2020-02-20'],
+           'hotel': ['457634', 'peter', 'Ritz', '2020-02-20', '2020-03-20'],
+           'account': ['456754', 'peter', '150']}
 
-# Rollback transactions
-rollback_flight_response = finish_prepared_flight('peter_flight', 'rollback')
-rollback_hotel_response = finish_prepared_hotel('peter_hotel', 'rollback')
-rollback_account_response = finish_prepared_account('peter_account', 'rollback')
+# The one that should be rollbacked
+Julee = {'flight': ['345633', 'julee', 'UA7556', 'HGL', 'NYJ', '2020-05-20'],
+           'hotel': ['768465', 'julee', 'Ritz', '2020-05-20', '2020-05-23'],
+           'account': ['546765', 'julee', '500']}
 
 
+# ACTUALLY THE 2PC TRANSACTION RUNS
+
+book_trip('peter', Peter)
+book_trip('julee', Julee)
 
 
+# ACTUALLY THE SAGA TRANSACTION RUNS
 
-# Test data
-test_connection = kick_connection('FlyBooking')
-test_query = "COMMIT PREPARED 'peter_flight'"
-resp = execute_query_post_autocommitrollback(test_connection, test_query)
-test_connection.close()
+book_trip_saga('peter', Peter)
+book_trip_saga('julee', Julee)
